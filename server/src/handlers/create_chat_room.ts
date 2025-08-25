@@ -1,21 +1,47 @@
+import { db } from '../db';
+import { chatRoomsTable, roomMembersTable } from '../db/schema';
 import { type CreateChatRoomInput, type ChatRoom } from '../schema';
 
+// Generate a unique random invitation code
+const generateInvitationCode = (): string => {
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const length = 8;
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return result;
+};
+
 export const createChatRoom = async (input: CreateChatRoomInput, userId: number): Promise<ChatRoom> => {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to:
-    // 1. Generate a unique random invitation code (6-8 characters)
-    // 2. Create new chat room in database with provided name and description
-    // 3. Set the creator as the room owner (created_by field)
-    // 4. Automatically add the creator as the first member of the room
-    // 5. Return the created room data including invitation code
+  try {
+    // Generate unique invitation code
+    let invitationCode = generateInvitationCode();
     
-    return Promise.resolve({
-        id: 0,
+    // Insert chat room record
+    const result = await db.insert(chatRoomsTable)
+      .values({
         name: input.name,
         description: input.description,
-        invitation_code: 'ABC123', // Placeholder invitation code
-        created_by: userId,
-        created_at: new Date(),
-        updated_at: new Date(),
-    } as ChatRoom);
+        invitation_code: invitationCode,
+        created_by: userId
+      })
+      .returning()
+      .execute();
+
+    const chatRoom = result[0];
+
+    // Automatically add the creator as the first member of the room
+    await db.insert(roomMembersTable)
+      .values({
+        room_id: chatRoom.id,
+        user_id: userId
+      })
+      .execute();
+
+    return chatRoom;
+  } catch (error) {
+    console.error('Chat room creation failed:', error);
+    throw error;
+  }
 };

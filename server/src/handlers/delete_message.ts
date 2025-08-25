@@ -1,31 +1,70 @@
+import { db } from '../db';
+import { messagesTable, usersTable } from '../db/schema';
 import { type DeleteMessageInput, type MessageWithUser } from '../schema';
+import { eq, and } from 'drizzle-orm';
 
 export const deleteMessage = async (input: DeleteMessageInput, userId: number): Promise<MessageWithUser> => {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is to:
-    // 1. Find the message by ID in the database
-    // 2. Verify that the message belongs to the requesting user (authorization)
-    // 3. Update the message to set is_deleted = true and deleted_at = now()
-    // 4. Keep the original message content for audit purposes
-    // 5. Join with user data to get username for response
-    // 6. Trigger real-time update to all room members about deletion
-    // 7. Return updated message data showing deletion status
-    // 8. Throw error if message not found or user not authorized
-    
-    return Promise.resolve({
-        id: input.message_id,
-        room_id: 1, // Placeholder
-        user_id: userId,
-        content: null, // Content hidden after deletion
-        message_type: 'text',
-        file_url: null,
-        file_name: null,
-        file_size: null,
-        file_type: null,
+  try {
+    // First, verify the message exists and belongs to the requesting user
+    const existingMessage = await db.select()
+      .from(messagesTable)
+      .where(
+        and(
+          eq(messagesTable.id, input.message_id),
+          eq(messagesTable.user_id, userId)
+        )
+      )
+      .execute();
+
+    if (existingMessage.length === 0) {
+      throw new Error('Message not found or you are not authorized to delete this message');
+    }
+
+    const message = existingMessage[0];
+
+    // Check if message is already deleted
+    if (message.is_deleted) {
+      throw new Error('Message is already deleted');
+    }
+
+    // Update the message to mark it as deleted
+    const updatedMessages = await db.update(messagesTable)
+      .set({
         is_deleted: true,
         deleted_at: new Date(),
-        created_at: new Date(),
-        updated_at: new Date(),
-        username: 'placeholder_user',
-    } as MessageWithUser);
+        updated_at: new Date()
+      })
+      .where(eq(messagesTable.id, input.message_id))
+      .returning()
+      .execute();
+
+    const updatedMessage = updatedMessages[0];
+
+    // Get username by joining with users table
+    const messageWithUser = await db.select({
+      id: messagesTable.id,
+      room_id: messagesTable.room_id,
+      user_id: messagesTable.user_id,
+      content: messagesTable.content,
+      message_type: messagesTable.message_type,
+      file_url: messagesTable.file_url,
+      file_name: messagesTable.file_name,
+      file_size: messagesTable.file_size,
+      file_type: messagesTable.file_type,
+      is_deleted: messagesTable.is_deleted,
+      deleted_at: messagesTable.deleted_at,
+      created_at: messagesTable.created_at,
+      updated_at: messagesTable.updated_at,
+      username: usersTable.username
+    })
+      .from(messagesTable)
+      .innerJoin(usersTable, eq(messagesTable.user_id, usersTable.id))
+      .where(eq(messagesTable.id, input.message_id))
+      .execute();
+
+    return messageWithUser[0];
+  } catch (error) {
+    console.error('Message deletion failed:', error);
+    throw error;
+  }
 };
